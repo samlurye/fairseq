@@ -93,7 +93,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 class CSTMTransformerDecoder(TransformerDecoder):
 
 	def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False, left_pad=False, final_norm=True):
-		super().__init__(args, dictionary, embed_tokens, no_encoder_attn=False, left_pad=False, final_norm=True)
+		super().__init__(args, dictionary, embed_tokens, no_encoder_attn, left_pad, final_norm)
 		self.layers = nn.ModuleList([])
 		self.layers.extend([
 			CSTMTransformerDecoderLayer(args, no_encoder_attn)
