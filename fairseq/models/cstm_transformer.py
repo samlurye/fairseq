@@ -8,6 +8,10 @@ from . import register_model, register_model_architecture
 from .transformer import *
 from fairseq import utils
 
+import argparse
+
+import copy
+
 class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 
 	def __init__(self, args, no_encoder_attn=False):
@@ -102,9 +106,9 @@ class CSTMTransformerDecoder(TransformerDecoder):
 
 class CSTMTransformerEncoder(TransformerEncoder):
 
-	def __init__(self, args, src_dict, encoder_embed_tokens):
+	def __init__(self, args, src_dict, encoder_embed_tokens, cstm):
 		super().__init__(args, src_dict, encoder_embed_tokens)
-		self.cstm = CSTM(args)
+		self.cstm = cstm
 
 	def forward(self, src_tokens, src_lengths):
 		encoder_out = super().forward(src_tokens, src_lengths)
@@ -112,9 +116,9 @@ class CSTMTransformerEncoder(TransformerEncoder):
 		# is the same as the signature of TransformerDecoderLayer.forward,
 		# which means we can just use TransformerDecoder.forward for 
 		# CSTMTransformerDecoder.forward
-		cstm_out, cstm_padding_mask = self.cstm.retrieve(
-			encoder_out["encoder_out"], 
-			encoder_out["encoder_padding_mask"]
+		cstm_out, cstm_padding_mask = self.cstm(
+			src_tokens, 
+			encoder_out
 		)
 		tmp = encoder_out["encoder_out"]
 		encoder_out["encoder_out"] = {
@@ -128,13 +132,128 @@ class CSTMTransformerEncoder(TransformerEncoder):
 		}
 		return encoder_out
 
-class CSTM:
+	def reorder_encoder_out(self, encoder_out, new_order):
+		# for use in beam search
+		if encoder_out['encoder_out']['encoder'] is not None:
+			encoder_out['encoder_out']['encoder'] = \
+				encoder_out['encoder_out']['encoder'].index_select(1, new_order)
+		if encoder_out['encoder_out']['cstm'] is not None:
+			encoder_out['encoder_out']['cstm'] = \
+				encoder_out['encoder_out']['cstm'].index_select(1, new_order)
+		if encoder_out['encoder_padding_mask']['encoder'] is not None:
+			encoder_out['encoder_padding_mask']['encoder'] = \
+				encoder_out['encoder_padding_mask']['encoder'].index_select(0, new_order)
+		if encoder_out['encoder_padding_mask']['cstm'] is not None:
+			encoder_out['encoder_padding_mask']['cstm'] = \
+				encoder_out['encoder_padding_mask']['cstm'].index_select(0, new_order)
+		return encoder_out
 
-	def __init__(self, args):
-		pass
+class CSTM(nn.Module):
 
-	def retrieve(self, encoder_out, encoder_padding_mask):
-		return encoder_out, encoder_padding_mask
+	def __init__(self, args, src_dict, src_embed_tokens, trg_dict, trg_embed_tokens):
+		super().__init__()
+
+		new_args = argparse.Namespace(**vars(args))
+		new_args.decoder_layers = args.cstm_layers
+
+		self.retrieved_src_encoder = CSTMInternalEncoder(new_args, src_dict, src_embed_tokens)
+		self.retrieved_trg_encoder = CSTMInternalEncoder(new_args, trg_dict, trg_embed_tokens)
+
+		self.n_retrieved = args.cstm_n_retrieved
+
+	def forward(self, src_tokens, encoder_out):
+		n_retrieved = self.n_retrieved
+		retrieved = self.retrieve(src_tokens, encoder_out["encoder_padding_mask"], n_retrieved)
+		retrieved_src_encoding = self.retrieved_src_encoder(
+			retrieved["src_tokens"], 
+			retrieved["src_padding_mask"],
+			encoder_out
+		)
+		retrieved_trg_encoding = self.retrieved_trg_encoder(
+			retrieved["trg_tokens"],
+			retrieved["trg_padding_mask"],
+			retrieved_src_encoding
+		)
+		batch = src_tokens.size(0)
+		seqlen = retrieved["trg_tokens"].size(1)
+		tmp = retrieved_trg_encoding["encoder_out"]
+		tmp = tmp.transpose(0, 1) # (batch * n_retrieved) x seqlen x hidden
+		tmp = tmp.reshape(batch, n_retrieved * seqlen, -1) # batch x (n_retrieved * seqlen) x hidden
+		tmp = tmp.transpose(0, 1) # (n_retrieved * seqlen) x batch x hidden
+		retrieved_trg_encoding["encoder_out"] = tmp
+		if retrieved_trg_encoding["encoder_padding_mask"] is not None:
+			tmp = retrieved_trg_encoding["encoder_padding_mask"]
+			tmp = tmp.reshape(batch, n_retrieved * seqlen)
+			retrieved_trg_encoding["encoder_padding_mask"] = tmp
+		return retrieved_trg_encoding["encoder_out"], retrieved_trg_encoding["encoder_padding_mask"]
+
+	def retrieve(self, src_tokens, src_padding_mask, n_retrieved):
+		# TODO: actually implement this with nearest neighbors search
+		# returns:
+		# *_tokens: LongTensor of shape (batch * n_retrieved, seqlen)
+		# *_padding_mask is a ByteTensor of shape (batch * n_retrieved, seqlen) indicating
+		# the locations of padding elements
+		#
+		# In order to interface with everything else, for 0 <= i < batch and
+		# 0 <= j < n_retrieved, row n_retrieved * i + j of each returned tensor
+		# needs to be the values associated with the j^th retrieved sentence
+		# for source sentence i. That is, as opposed to indexing by batch * j + i.
+		return {
+			"src_tokens": torch.ones_like(src_tokens.repeat(n_retrieved, 1)),
+			"src_padding_mask": torch.zeros_like(src_padding_mask.repeat(n_retrieved, 1)) \
+								 if src_padding_mask is not None else None,
+			"trg_tokens": torch.ones_like(src_tokens.repeat(n_retrieved, 1)),
+			"trg_padding_mask": torch.zeros_like(src_padding_mask.repeat(n_retrieved, 1)) \
+								 if src_padding_mask is not None else None
+		}
+
+class CSTMInternalEncoder(TransformerDecoder):
+
+	def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False, left_pad=False, final_norm=True):
+		super().__init__(args, dictionary, embed_tokens, no_encoder_attn=False, left_pad=False, final_norm=True)
+		# self.embed_out is a module in TransformerDecoder that is unused in the forward pass. For some reason,
+		# unused modules break fairseq's distributed functionality when calculating gradients, so we have to
+		# delete it.
+		del self.embed_out
+
+	def forward(self, tokens, padding_mask, encoder_out):
+		# embed positions
+		positions = self.embed_positions(
+			tokens
+		) if self.embed_positions is not None else None
+
+		# embed tokens and positions
+		x = self.embed_scale * self.embed_tokens(tokens)
+
+		if self.project_in_dim is not None:
+			x = self.project_in_dim(x)
+
+		if positions is not None:
+			x += positions
+		x = F.dropout(x, p=self.dropout, training=self.training)
+
+		# (batch * n_retrieved) x seqlen x hidden -> seqlen x (batch * n_retrieved) x hidden
+		x = x.transpose(0, 1)
+		# decoder layers
+		for layer in self.layers:
+			x, attn = layer(
+				x,
+				encoder_out['encoder_out'],
+				encoder_out['encoder_padding_mask'],
+				None,
+				self_attn_padding_mask=padding_mask
+			)
+
+		if self.normalize:
+			x = self.layer_norm(x)
+
+		if self.project_out_dim is not None:
+			x = self.project_out_dim(x)
+
+		return {
+			"encoder_out": x, # (seqlen, batch * n_retrieved, hidden)
+			"encoder_padding_mask": padding_mask # (batch * n_retrieved, seqlen)
+		}
 
 @register_model("cstm_transformer")
 class CSTMTransformerModel(TransformerModel):
@@ -142,13 +261,19 @@ class CSTMTransformerModel(TransformerModel):
 	@staticmethod
 	def add_args(parser):
 		TransformerModel.add_args(parser)
-		# TODO: add args to the parser for CSTM class to use
+		parser.add_argument("--cstm-layers", metavar="N", type=int,
+							help='number of layers in each cstm transformer')
+		parser.add_argument("--cstm-share-embeddings", action="store_true",
+							 help="use the same embeddings in the cstm as in the \
+							 main encoder and decoder")
+		parser.add_argument('--cstm-n-retrieved', metavar='N', type=int, 
+							help='number of train sentences to return for each src \
+							in the cstm')
 
 	@classmethod
 	def build_model(cls, args, task):
 		"""Build a new model instance."""
 
-		# make sure all arguments are present in older models
 		base_cstm_architecture(args)
 
 		if not hasattr(args, 'max_source_positions'):
@@ -190,10 +315,27 @@ class CSTMTransformerModel(TransformerModel):
 				tgt_dict, args.decoder_embed_dim, args.decoder_embed_path
 			)
 
-		encoder = CSTMTransformerEncoder(args, src_dict, encoder_embed_tokens)
+		if args.cstm_share_embeddings:
+			cstm_src_embed_tokens = encoder_embed_tokens
+			cstm_trg_embed_tokens = decoder_embed_tokens
+		else:
+			cstm_src_embed_tokens = build_embedding(
+				src_dict, args.encoder_embed_dim, args.encoder_embed_path
+			)
+			cstm_trg_embed_tokens = build_embedding(
+				tgt_dict, args.decoder_embed_dim, args.decoder_embed_path
+			)
+
+		cstm = CSTM(args, src_dict, cstm_src_embed_tokens, tgt_dict, cstm_trg_embed_tokens)
+
+		encoder = CSTMTransformerEncoder(args, src_dict, encoder_embed_tokens, cstm)
 		decoder = CSTMTransformerDecoder(args, tgt_dict, decoder_embed_tokens)
 		return CSTMTransformerModel(encoder, decoder)
 
 @register_model_architecture("cstm_transformer", "cstm_transformer")
 def base_cstm_architecture(args):
 	base_architecture(args)
+	args.cstm_share_embeddings = getattr(args, "cstm_share_embeddings", True)
+	args.cstm_layers = getattr(args, "cstm_layers", 1)
+	args.cstm_n_retrieved = getattr(args, "cstm_n_retrieved", 1)
+
