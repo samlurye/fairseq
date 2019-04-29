@@ -163,7 +163,8 @@ class CSTM(nn.Module):
 
 	def forward(self, src_tokens, encoder_out):
 		n_retrieved = self.n_retrieved
-		retrieved = self.retrieve(src_tokens, encoder_out["encoder_padding_mask"], n_retrieved)
+		retrieved = self.retrieve(src_tokens, encoder_out["encoder_padding_mask"], \
+					 				encoder_out["encoder_out"], n_retrieved)
 		retrieved_src_encoding = self.retrieved_src_encoder(
 			retrieved["src_tokens"], 
 			retrieved["src_padding_mask"],
@@ -187,12 +188,13 @@ class CSTM(nn.Module):
 			retrieved_trg_encoding["encoder_padding_mask"] = tmp
 		return retrieved_trg_encoding["encoder_out"], retrieved_trg_encoding["encoder_padding_mask"]
 
-	def retrieve(self, src_tokens, src_padding_mask, n_retrieved):
+	def retrieve(self, src_tokens, src_padding_mask, src_encoding, n_retrieved):
 		# TODO: actually implement this with nearest neighbors search
+
 		# returns:
-		# *_tokens: LongTensor of shape (batch * n_retrieved, seqlen)
-		# *_padding_mask is a ByteTensor of shape (batch * n_retrieved, seqlen) indicating
-		# the locations of padding elements
+		# 	*_tokens: LongTensor of shape (batch * n_retrieved, seqlen)
+		# 	*_padding_mask is a ByteTensor of shape (batch * n_retrieved, seqlen) indicating
+		# 	 the locations of padding elements
 		#
 		# In order to interface with everything else, for 0 <= i < batch and
 		# 0 <= j < n_retrieved, row n_retrieved * i + j of each returned tensor
@@ -338,4 +340,5 @@ def base_cstm_architecture(args):
 	args.cstm_share_embeddings = getattr(args, "cstm_share_embeddings", True)
 	args.cstm_layers = getattr(args, "cstm_layers", 1)
 	args.cstm_n_retrieved = getattr(args, "cstm_n_retrieved", 1)
+	args.cstm_pretrain_step = getattr(args, "cstm_pretrain_step", True)
 
