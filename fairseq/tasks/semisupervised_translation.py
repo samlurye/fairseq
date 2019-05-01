@@ -356,7 +356,7 @@ class SemisupervisedTranslationTask(MultilingualTranslationTask):
             for lang_pair in self.args.lang_pairs:
                 _, tgt = lang_pair.split('-')
                 sample_key = _get_denoising_dataset_key(lang_pair)
-                forward_backward(model.models[f'{tgt}-{tgt}'], sample[sample_key], sample_key, self.lambda_denoising)
+                forward_backward(model.models['{}-{}'.format(tgt, tgt)], sample[sample_key], sample_key, self.lambda_denoising)
 
         return agg_loss, agg_sample_size, agg_logging_output
 
