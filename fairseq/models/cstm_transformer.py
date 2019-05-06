@@ -75,7 +75,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 				need_weights=(not self.training and self.need_attn),
 			)
 			g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
-			x = g * x + (1 - g) * x
+			x = g * cs + (1 - g) * cm
 			x = F.dropout(x, p=self.dropout, training=self.training)
 			x = residual + x
 			x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, after=True)
@@ -103,6 +103,7 @@ class CSTMTransformerDecoder(TransformerDecoder):
 			CSTMTransformerDecoderLayer(args, no_encoder_attn)
 			for _ in range(args.decoder_layers)
 		])
+		
 
 class CSTMTransformerEncoder(TransformerEncoder):
 
@@ -337,8 +338,7 @@ class CSTMTransformerModel(TransformerModel):
 @register_model_architecture("cstm_transformer", "cstm_transformer")
 def base_cstm_architecture(args):
 	base_architecture(args)
-	args.cstm_share_embeddings = getattr(args, "cstm_share_embeddings", True)
+	args.cstm_share_embeddings = getattr(args, "cstm_share_embeddings", False)
 	args.cstm_layers = getattr(args, "cstm_layers", 1)
 	args.cstm_n_retrieved = getattr(args, "cstm_n_retrieved", 1)
-	args.cstm_pretrain_step = getattr(args, "cstm_pretrain_step", True)
 
