@@ -10,7 +10,7 @@ from .fairseq_dataset import FairseqDataset
 from .backtranslation_dataset import BacktranslationDataset
 from .concat_dataset import ConcatDataset
 from .indexed_dataset import IndexedCachedDataset, IndexedDataset, IndexedRawTextDataset
-from .language_pair_dataset import LanguagePairDataset
+from .language_pair_dataset import LanguagePairDataset, LanguagePairDatasetWithIndex
 from .lm_context_window_dataset import LMContextWindowDataset
 from .monolingual_dataset import MonolingualDataset
 from .noising import NoisingDataset
@@ -38,6 +38,7 @@ __all__ = [
     'IndexedDataset',
     'IndexedRawTextDataset',
     'LanguagePairDataset',
+    'LanguagePairDatasetWithIndex'
     'LMContextWindowDataset',
     'MonolingualDataset',
     'NoisingDataset',

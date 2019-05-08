@@ -239,3 +239,13 @@ class LanguagePairDataset(FairseqDataset):
         self.src.prefetch(indices)
         if self.tgt is not None:
             self.tgt.prefetch(indices)
+
+class LanguagePairDatasetWithIndex(LanguagePairDataset):
+
+    def collater(self, samples):
+        batch = super().collater(samples)
+        batch["net_input"]["ids"] = batch["id"].clone()
+        return batch
+
+
+

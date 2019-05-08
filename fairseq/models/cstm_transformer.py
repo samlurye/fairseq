@@ -107,11 +107,13 @@ class CSTMTransformerDecoder(TransformerDecoder):
 
 class CSTMTransformerEncoder(TransformerEncoder):
 
-	def __init__(self, args, src_dict, encoder_embed_tokens, cstm):
+	def __init__(self, args, src_dict, encoder_embed_tokens, cstm, dataset):
 		super().__init__(args, src_dict, encoder_embed_tokens)
 		self.cstm = cstm
+		self.dataset = dataset
 
-	def forward(self, src_tokens, src_lengths):
+	def forward(self, src_tokens, src_lengths, ids):
+		print(ids)
 		encoder_out = super().forward(src_tokens, src_lengths)
 		# do this nonsense so that the signature of CSTMTransformerDecoderLayer.forward
 		# is the same as the signature of TransformerDecoderLayer.forward,
@@ -165,7 +167,7 @@ class CSTM(nn.Module):
 	def forward(self, src_tokens, encoder_out):
 		n_retrieved = self.n_retrieved
 		retrieved = self.retrieve(src_tokens, encoder_out["encoder_padding_mask"], \
-					 				encoder_out["encoder_out"], n_retrieved)
+									encoder_out["encoder_out"], n_retrieved)
 		retrieved_src_encoding = self.retrieved_src_encoder(
 			retrieved["src_tokens"], 
 			retrieved["src_padding_mask"],
@@ -331,9 +333,14 @@ class CSTMTransformerModel(TransformerModel):
 
 		cstm = CSTM(args, src_dict, cstm_src_embed_tokens, tgt_dict, cstm_trg_embed_tokens)
 
-		encoder = CSTMTransformerEncoder(args, src_dict, encoder_embed_tokens, cstm)
+		encoder = CSTMTransformerEncoder(args, src_dict, encoder_embed_tokens, cstm, task.dataset)
 		decoder = CSTMTransformerDecoder(args, tgt_dict, decoder_embed_tokens)
 		return CSTMTransformerModel(encoder, decoder)
+
+	def forward(self, src_tokens, src_lengths, prev_output_tokens, ids):
+		encoder_out = self.encoder(src_tokens, src_lengths, ids)
+		decoder_out = self.decoder(prev_output_tokens, encoder_out)
+		return decoder_out
 
 @register_model_architecture("cstm_transformer", "cstm_transformer")
 def base_cstm_architecture(args):
