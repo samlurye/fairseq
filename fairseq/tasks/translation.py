@@ -214,11 +214,11 @@ class TranslationTask(FairseqTask):
 class CSTMTranslationTask(TranslationTask):
 
     def load_dataset(self, split, combine=False, **kwargs):
-    """Load a given dataset split.
+	    """Load a given dataset split.
 
-    Args:
-        split (str): name of the split (e.g., train, valid, test)
-    """
+	    Args:
+	        split (str): name of the split (e.g., train, valid, test)
+	    """
 
         def split_exists(split, src, tgt, lang, data_path):
             filename = os.path.join(data_path, '{}.{}-{}.{}'.format(split, src, tgt, lang))
