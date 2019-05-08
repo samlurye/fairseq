@@ -244,7 +244,8 @@ class LanguagePairDatasetWithIndex(LanguagePairDataset):
 
     def collater(self, samples):
         batch = super().collater(samples)
-        batch["net_input"]["ids"] = batch["id"].clone()
+        if len(samples) > 0:
+            batch["net_input"]["ids"] = batch["id"].clone()
         return batch
 
 

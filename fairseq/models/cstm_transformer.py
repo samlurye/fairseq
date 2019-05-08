@@ -102,18 +102,16 @@ class CSTMTransformerDecoder(TransformerDecoder):
 		self.layers.extend([
 			CSTMTransformerDecoderLayer(args, no_encoder_attn)
 			for _ in range(args.decoder_layers)
-		])
-		
+		])	
 
 class CSTMTransformerEncoder(TransformerEncoder):
 
-	def __init__(self, args, src_dict, encoder_embed_tokens, cstm, dataset):
+	def __init__(self, args, src_dict, encoder_embed_tokens, cstm, datasets):
 		super().__init__(args, src_dict, encoder_embed_tokens)
 		self.cstm = cstm
-		self.dataset = dataset
+		self.datasets = datasets
 
 	def forward(self, src_tokens, src_lengths, ids):
-		print(ids)
 		encoder_out = super().forward(src_tokens, src_lengths)
 		# do this nonsense so that the signature of CSTMTransformerDecoderLayer.forward
 		# is the same as the signature of TransformerDecoderLayer.forward,
@@ -121,7 +119,8 @@ class CSTMTransformerEncoder(TransformerEncoder):
 		# CSTMTransformerDecoder.forward
 		cstm_out, cstm_padding_mask = self.cstm(
 			src_tokens, 
-			encoder_out
+			encoder_out,
+			ids
 		)
 		tmp = encoder_out["encoder_out"]
 		encoder_out["encoder_out"] = {
@@ -164,10 +163,11 @@ class CSTM(nn.Module):
 
 		self.n_retrieved = args.cstm_n_retrieved
 
-	def forward(self, src_tokens, encoder_out):
+		self.nns_data = torch.load("nns_ids_no_dup.pt")
+
+	def forward(self, src_tokens, encoder_out, ids):
 		n_retrieved = self.n_retrieved
-		retrieved = self.retrieve(src_tokens, encoder_out["encoder_padding_mask"], \
-									encoder_out["encoder_out"], n_retrieved)
+		retrieved = self.retrieve(ids, n_retrieved)
 		retrieved_src_encoding = self.retrieved_src_encoder(
 			retrieved["src_tokens"], 
 			retrieved["src_padding_mask"],
@@ -191,7 +191,7 @@ class CSTM(nn.Module):
 			retrieved_trg_encoding["encoder_padding_mask"] = tmp
 		return retrieved_trg_encoding["encoder_out"], retrieved_trg_encoding["encoder_padding_mask"]
 
-	def retrieve(self, src_tokens, src_padding_mask, src_encoding, n_retrieved):
+	def retrieve(self, ids, n_retrieved):
 		# TODO: actually implement this with nearest neighbors search
 
 		# returns:
@@ -333,7 +333,7 @@ class CSTMTransformerModel(TransformerModel):
 
 		cstm = CSTM(args, src_dict, cstm_src_embed_tokens, tgt_dict, cstm_trg_embed_tokens)
 
-		encoder = CSTMTransformerEncoder(args, src_dict, encoder_embed_tokens, cstm, task.dataset)
+		encoder = CSTMTransformerEncoder(args, src_dict, encoder_embed_tokens, cstm, task.datasets)
 		decoder = CSTMTransformerDecoder(args, tgt_dict, decoder_embed_tokens)
 		return CSTMTransformerModel(encoder, decoder)
 
