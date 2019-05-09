@@ -242,7 +242,7 @@ class LanguagePairDataset(FairseqDataset):
 
 class LanguagePairDatasetWithIndex(LanguagePairDataset):
 
-    def __init__(*args, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.split = kwargs["split"]
         del kwargs["split"]
         super().__init__(*args, **kwargs)
