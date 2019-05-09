@@ -242,10 +242,16 @@ class LanguagePairDataset(FairseqDataset):
 
 class LanguagePairDatasetWithIndex(LanguagePairDataset):
 
+    def __init__(*args, **kwargs):
+        self.split = kwargs["split"]
+        del kwargs["split"]
+        super().__init__(*args, **kwargs)
+
     def collater(self, samples):
         batch = super().collater(samples)
         if len(samples) > 0:
             batch["net_input"]["ids"] = batch["id"].clone()
+            batch["net_input"]["split"] = self.split
         return batch
 
 
