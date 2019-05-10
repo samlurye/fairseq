@@ -12,6 +12,8 @@ import argparse
 
 import copy
 
+from collections import OrderedDict
+
 class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 
 	def __init__(self, args, no_encoder_attn=False):
@@ -65,17 +67,20 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 				static_kv=True,
 				need_weights=(not self.training and self.need_attn),
 			)
-			cm, _ = self.cstm_attn(
-				query=x,
-				key=encoder_out["cstm"],
-				value=encoder_out["cstm"],
-				key_padding_mask=encoder_padding_mask["cstm"],
-				incremental_state=incremental_state,
-				static_kv=True,
-				need_weights=(not self.training and self.need_attn),
-			)
-			g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
-			x = g * cs + (1 - g) * cm
+			if encoder_out["cstm"] is not None:
+				cm, _ = self.cstm_attn(
+					query=x,
+					key=encoder_out["cstm"],
+					value=encoder_out["cstm"],
+					key_padding_mask=encoder_padding_mask["cstm"],
+					incremental_state=incremental_state,
+					static_kv=True,
+					need_weights=(not self.training and self.need_attn),
+				)
+				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
+				x = g * cs + (1 - g) * cm
+			else:
+				x = cs
 			x = F.dropout(x, p=self.dropout, training=self.training)
 			x = residual + x
 			x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, after=True)
@@ -116,12 +121,11 @@ class CSTMTransformerEncoder(TransformerEncoder):
 		# is the same as the signature of TransformerDecoderLayer.forward,
 		# which means we can just use TransformerDecoder.forward for 
 		# CSTMTransformerDecoder.forward
-		cstm_out, cstm_padding_mask = self.cstm(
-			src_tokens, 
-			encoder_out,
-			ids,
-			split
-		)
+		if len(ids) > 0:
+			cstm_out, cstm_padding_mask = self.cstm(encoder_out, ids, split)
+		else:
+			cstm_out = None 
+			cstm_padding_mask = None
 		tmp = encoder_out["encoder_out"]
 		encoder_out["encoder_out"] = {
 			"encoder": tmp,
@@ -153,7 +157,7 @@ class CSTMTransformerEncoder(TransformerEncoder):
 class CSTM(nn.Module):
 
 	def __init__(self, args, src_dict, src_embed_tokens, \
-				 trg_dict, trg_embed_tokens, datasets):
+				 trg_dict, trg_embed_tokens, datasets, nns_data):
 		super().__init__()
 
 		new_args = argparse.Namespace(**vars(args))
@@ -167,39 +171,57 @@ class CSTM(nn.Module):
 
 		self.n_retrieved = args.cstm_n_retrieved
 
-		self.datasets = datasets
+		self.datasets = copy.deepcopy(datasets)
 
-		self.nns_data = torch.load("nns_ids_combined.pt")
+		self.nns_data = nns_data
 
-	def forward(self, src_tokens, encoder_out, ids, split):
+	def forward(self, encoder_out, ids, split):
 		n_retrieved = self.n_retrieved
 		retrieved = self.retrieve(ids, split, n_retrieved)
+
+		if retrieved is None:
+			return None, None
+
+		nns_query_ids = retrieved["nns_query_ids"]
+		id_map = torch.tensor([(ids == id).nonzero().item() for id in nns_query_ids])
+
+		tmp = {}
+		tmp["encoder_out"] = encoder_out["encoder_out"][:, id_map]
+		tmp["encoder_padding_mask"] = \
+			encoder_out["encoder_padding_mask"][id_map] \
+				if encoder_out["encoder_padding_mask"] is not None else None
+
 		retrieved_src_encoding = self.retrieved_src_encoder(
 			retrieved["src_tokens"], 
 			retrieved["src_padding_mask"],
-			encoder_out
+			tmp
 		)
+
 		retrieved_trg_encoding = self.retrieved_trg_encoder(
 			retrieved["trg_tokens"],
 			retrieved["trg_padding_mask"],
 			retrieved_src_encoding
 		)
-		batch = src_tokens.size(0)
-		seqlen = retrieved["trg_tokens"].size(1)
-		tmp = retrieved_trg_encoding["encoder_out"]
-		tmp = tmp.transpose(0, 1) # (batch * n_retrieved) x seqlen x hidden
-		tmp = tmp.reshape(batch, n_retrieved * seqlen, -1) # batch x (n_retrieved * seqlen) x hidden
-		tmp = tmp.transpose(0, 1) # (n_retrieved * seqlen) x batch x hidden
-		retrieved_trg_encoding["encoder_out"] = tmp
-		if retrieved_trg_encoding["encoder_padding_mask"] is not None:
-			tmp = retrieved_trg_encoding["encoder_padding_mask"]
-			tmp = tmp.reshape(batch, n_retrieved * seqlen)
-			retrieved_trg_encoding["encoder_padding_mask"] = tmp
-		return retrieved_trg_encoding["encoder_out"], retrieved_trg_encoding["encoder_padding_mask"]
+
+		trg_enc = retrieved_trg_encoding["encoder_out"]
+		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
+		final_trg_enc = []
+		final_trg_pad = []
+		for idx in ids:
+			final_trg_enc.append(
+				trg_enc[:, nns_query_ids == idx].reshape(
+					retrieved["trg_tokens"].size(1) * n_retrieved,
+					-1
+				) # (seqlen * n_retrieved) x hidden
+			)
+			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
+
+		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
+		final_trg_pad = torch.stack(final_trg_pad)
+
+		return final_trg_enc, final_trg_pad
 
 	def retrieve(self, ids, split, n_retrieved):
-		# TODO: actually implement this with nearest neighbors search
-
 		# returns:
 		# 	*_tokens: LongTensor of shape (batch * n_retrieved, seqlen)
 		# 	*_padding_mask is a ByteTensor of shape (batch * n_retrieved, seqlen) indicating
@@ -210,22 +232,38 @@ class CSTM(nn.Module):
 		# needs to be the values associated with the j^th retrieved sentence
 		# for source sentence i. That is, as opposed to indexing by batch * j + i.
 
-		# self.datasets["train"].prefetch([203021])
-		# print(self.src_dict.string(self.datasets["train"][203021]["source"], bpe_symbol='sentencepiece') + "\n")
-		# nns_ids = [int(sid.split("_")[1]) for sid in self.nns_data["train_203021"][:20]]
-		# self.datasets["train"].prefetch(nns_ids)
-		# for i in range(20):
-		# 	print(self.src_dict.string(self.datasets["train"][nns_ids[i]]["source"], bpe_symbol='sentencepiece') + "\n")
+		nns = []
+		nns_map = {}
+		for idx in ids:
+			for nns_key in self.nns_data[split + "_" + str(idx.item())][:n_retrieved]:
+				nns_split, nns_id = nns_key.split("_")
+				nns_id = int(nns_id)
+				self.datasets[nns_split].prefetch([nns_id])
+				nns.append(self.datasets[nns_split][nns_id])
+				if nns_map.get(nns_id, None) is None:
+					nns_map[nns_id] = [idx.item()]
+				else:
+					nns_map[nns_id].append(idx.item())
 
-		print(split)
+		print(len(nns))
+		batch = self.datasets[split].collater(nns)
+		if "net_input" not in batch.keys():
+			return None
+		src_tokens = batch["net_input"]["src_tokens"]
+		src_padding_mask = src_tokens.eq(self.src_dict.pad())
+		trg_tokens = batch["target"]
+		trg_padding_mask = trg_tokens.eq(self.trg_dict.pad())
+
+		nns_query_ids = []
+		for idx in batch["net_input"]["ids"]:
+			nns_query_ids.append(nns_map[idx.item()].pop(0))
 
 		return {
-			"src_tokens": torch.ones_like(src_tokens.repeat(n_retrieved, 1)),
-			"src_padding_mask": torch.zeros_like(src_padding_mask.repeat(n_retrieved, 1)) \
-								 if src_padding_mask is not None else None,
-			"trg_tokens": torch.ones_like(src_tokens.repeat(n_retrieved, 1)),
-			"trg_padding_mask": torch.zeros_like(src_padding_mask.repeat(n_retrieved, 1)) \
-								 if src_padding_mask is not None else None
+			"src_tokens": src_tokens.to(ids.device),
+			"src_padding_mask": src_padding_mask.to(ids.device),
+			"trg_tokens": trg_tokens.to(ids.device),
+			"trg_padding_mask": trg_padding_mask.to(ids.device),
+			"nns_query_ids": torch.tensor(nns_query_ids).to(ids.device)
 		}
 
 class CSTMInternalEncoder(TransformerDecoder):
@@ -284,13 +322,15 @@ class CSTMTransformerModel(TransformerModel):
 	def add_args(parser):
 		TransformerModel.add_args(parser)
 		parser.add_argument("--cstm-layers", metavar="N", type=int,
-							help='number of layers in each cstm transformer')
+							 help='number of layers in each cstm transformer')
 		parser.add_argument("--cstm-share-embeddings", action="store_true",
 							 help="use the same embeddings in the cstm as in the \
 							 main encoder and decoder")
 		parser.add_argument('--cstm-n-retrieved', metavar='N', type=int, 
-							help='number of train sentences to return for each src \
+							 help='number of train sentences to return for each src \
 							in the cstm')
+		parser.add_argument("--cstm-nns-data", metavar='S', type=str,
+							 help="path to the nearest neighbor data for cstm")
 
 	@classmethod
 	def build_model(cls, args, task):
@@ -348,8 +388,10 @@ class CSTMTransformerModel(TransformerModel):
 				tgt_dict, args.decoder_embed_dim, args.decoder_embed_path
 			)
 
+		nns_data = torch.load(args.cstm_nns_data)
+
 		cstm = CSTM(args, src_dict, cstm_src_embed_tokens, tgt_dict, \
-					cstm_trg_embed_tokens, task.datasets)
+					cstm_trg_embed_tokens, task.datasets, nns_data)
 
 		encoder = CSTMTransformerEncoder(args, src_dict, encoder_embed_tokens, cstm)
 		decoder = CSTMTransformerDecoder(args, tgt_dict, decoder_embed_tokens)
@@ -366,4 +408,5 @@ def base_cstm_architecture(args):
 	args.cstm_share_embeddings = getattr(args, "cstm_share_embeddings", False)
 	args.cstm_layers = getattr(args, "cstm_layers", 1)
 	args.cstm_n_retrieved = getattr(args, "cstm_n_retrieved", 1)
+	args.cstm_nns_data = getattr(args, "cstm_nns_data", "nns_ids_combined.pt")
 
