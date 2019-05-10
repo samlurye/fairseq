@@ -245,7 +245,6 @@ class CSTM(nn.Module):
 				else:
 					nns_map[nns_id].append(idx.item())
 
-		print(len(nns))
 		batch = self.datasets[split].collater(nns)
 		if "net_input" not in batch.keys():
 			return None
