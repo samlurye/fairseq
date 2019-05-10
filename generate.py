@@ -33,7 +33,12 @@ def main(args):
 
     # Load dataset splits
     task = tasks.setup_task(args)
-    task.load_dataset(args.gen_subset)
+    if args.task == "cstm_translation":
+        task.load_dataset("train")
+        task.load_dataset("valid")
+        task.load_dataset("test")
+    else:
+        task.load_dataset(args.gen_subset)
     print('| {} {} {} examples'.format(args.data, args.gen_subset, len(task.dataset(args.gen_subset))))
 
     # Set dictionaries
