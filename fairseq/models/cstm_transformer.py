@@ -251,10 +251,15 @@ class CSTM(nn.Module):
 		nns = []
 		nns_map = {}
 		for idx in ids:
-			for nns_key in self.nns_data[split + "_" + str(idx.item())][:n_retrieved]:
+			query_key = split + "_" + str(idx.item())
+			nns_keys = self.nns_data[query_key][:n_retrieved]
+			nns_keys_train = list(filter(lambda k: "train" in k, nns_keys))
+			nns_keys_valid = list(filter(lambda k: "valid" in k, nns_keys))
+			self.datasets["train"].prefetch([int(k.split("_")[1]) for k in nns_keys_train])
+			self.datasets["valid"].prefetch([int(k.split("_")[1]) for k in nns_keys_valid])
+			for nns_key in nns_keys:
 				nns_split, nns_id = nns_key.split("_")
 				nns_id = int(nns_id)
-				self.datasets[nns_split].prefetch([nns_id])
 				nns.append(self.datasets[nns_split][nns_id])
 				if nns_map.get(nns_id, None) is None:
 					nns_map[nns_id] = [idx.item()]
