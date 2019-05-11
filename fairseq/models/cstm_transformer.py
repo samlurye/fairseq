@@ -223,19 +223,14 @@ class CSTM(nn.Module):
 
 		trg_enc = retrieved_trg_encoding["encoder_out"]
 		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
-
-		seqlen = min(32, retrieved["trg_tokens"].shape[1])
-		trg_enc = trg_enc[:seqlen]
-		trg_pad = trg_pad[:, :seqlen]
-
 		final_trg_enc = []
 		final_trg_pad = []
 		for idx in ids:
 			final_trg_enc.append(
 				trg_enc[:, nns_query_ids == idx].reshape(
-					seqlen * n_retrieved,
+					retrieved["trg_tokens"].size(1) * n_retrieved,
 					-1
-				)
+				) # (seqlen * n_retrieved) x hidden
 			)
 			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
 
