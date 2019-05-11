@@ -209,21 +209,17 @@ class CSTM(nn.Module):
 			encoder_out["encoder_padding_mask"][id_map] \
 				if encoder_out["encoder_padding_mask"] is not None else None
 
-		start = time.clock()
 		retrieved_src_encoding = self.retrieved_src_encoder(
 			retrieved["src_tokens"], 
 			retrieved["src_padding_mask"],
 			tmp
 		)
-		print("Total time in retrieved src encoder: {:.4f}".format(time.clock() - start))
 
-		start = time.clock()
 		retrieved_trg_encoding = self.retrieved_trg_encoder(
 			retrieved["trg_tokens"],
 			retrieved["trg_padding_mask"],
 			retrieved_src_encoding
 		)
-		print("Total time in retrieved trg encoder: {:.4f}".format(time.clock() - start))
 
 		trg_enc = retrieved_trg_encoding["encoder_out"]
 		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
