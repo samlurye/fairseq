@@ -255,6 +255,8 @@ class CSTM(nn.Module):
 		for idx in ids:
 			query_key = split + "_" + str(idx.item())
 			nns_keys = self.nns_data[query_key][:n_retrieved]
+			if len(nns_keys) != n_retrieved:
+				return None
 			nns_keys_train = list(filter(lambda k: "train" in k, nns_keys))
 			nns_keys_valid = list(filter(lambda k: "valid" in k, nns_keys))
 			self.datasets["train"].prefetch([int(k.split("_")[1]) for k in nns_keys_train])
