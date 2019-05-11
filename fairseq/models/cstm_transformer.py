@@ -195,9 +195,7 @@ class CSTM(nn.Module):
 
 	def forward(self, encoder_out, ids, split):
 		n_retrieved = self.n_retrieved
-		start = time.clock()
 		retrieved = self.retrieve(ids, split, n_retrieved)
-		print("Total time in CSTM.retrieve: {:.4f}".format(time.clock() - start))
 
 		if retrieved is None:
 			return None, None
@@ -211,24 +209,26 @@ class CSTM(nn.Module):
 			encoder_out["encoder_padding_mask"][id_map] \
 				if encoder_out["encoder_padding_mask"] is not None else None
 
+		start = time.clock()
 		retrieved_src_encoding = self.retrieved_src_encoder(
 			retrieved["src_tokens"], 
 			retrieved["src_padding_mask"],
 			tmp
 		)
+		print("Total time in retrieved src encoder: {:.4f}".format(time.clock() - start))
 
+		start = time.clock()
 		retrieved_trg_encoding = self.retrieved_trg_encoder(
 			retrieved["trg_tokens"],
 			retrieved["trg_padding_mask"],
 			retrieved_src_encoding
 		)
+		print("Total time in retrieved trg encoder: {:.4f}".format(time.clock() - start))
 
 		trg_enc = retrieved_trg_encoding["encoder_out"]
 		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
 		final_trg_enc = []
 		final_trg_pad = []
-
-		start = time.clock()
 		for idx in ids:
 			final_trg_enc.append(
 				trg_enc[:, nns_query_ids == idx].reshape(
@@ -240,7 +240,6 @@ class CSTM(nn.Module):
 
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
-		print("Total time reordering retrieved trg encoding: {:.4f}".format(time.clock() - start))
 
 		return final_trg_enc, final_trg_pad
 
@@ -257,7 +256,6 @@ class CSTM(nn.Module):
 
 		nns = []
 		nns_map = {}
-		start = time.clock()
 		for idx in ids:
 			query_key = split + "_" + str(idx.item())
 			nns_keys = self.nns_data[query_key][:n_retrieved]
@@ -273,7 +271,6 @@ class CSTM(nn.Module):
 					nns_map[nns_id] = [idx.item()]
 				else:
 					nns_map[nns_id].append(idx.item())
-		print("Total time retrieiving nns from datasets: {:.4f}".format(time.clock() - start))
 
 		batch = self.datasets[split].collater(nns)
 		if "net_input" not in batch.keys():
