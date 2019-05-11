@@ -255,7 +255,7 @@ class CSTM(nn.Module):
 		for idx in ids:
 			for nns_key in self.nns_data[split + "_" + str(idx.item())][:n_retrieved]:
 				nns_split, nns_id = nns_key.split("_")
-				if nns_split == "valid" and self.cstm_retrieve_valid:
+				if nns_split == "valid" and not self.retrieve_valid:
 					continue
 				nns_id = int(nns_id)
 				self.datasets[nns_split].prefetch([nns_id])
