@@ -14,6 +14,8 @@ import copy
 
 from collections import OrderedDict
 
+import time
+
 """
 First, upload the flores directory on nc6 to google drive. Then cd into that
 directory and run the following command.
@@ -193,7 +195,9 @@ class CSTM(nn.Module):
 
 	def forward(self, encoder_out, ids, split):
 		n_retrieved = self.n_retrieved
+		start = time.clock()
 		retrieved = self.retrieve(ids, split, n_retrieved)
+		print("Total time in CSTM.retrieve: {:.4f}".format(time.clock() - start))
 
 		if retrieved is None:
 			return None, None
@@ -223,6 +227,8 @@ class CSTM(nn.Module):
 		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
 		final_trg_enc = []
 		final_trg_pad = []
+
+		start = time.clock()
 		for idx in ids:
 			final_trg_enc.append(
 				trg_enc[:, nns_query_ids == idx].reshape(
@@ -234,6 +240,7 @@ class CSTM(nn.Module):
 
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
+		print("Total time reordering retrieved trg encoding: {:.4f}".format(time.clock() - start))
 
 		return final_trg_enc, final_trg_pad
 
@@ -250,6 +257,7 @@ class CSTM(nn.Module):
 
 		nns = []
 		nns_map = {}
+		start = time.clock()
 		for idx in ids:
 			query_key = split + "_" + str(idx.item())
 			nns_keys = self.nns_data[query_key][:n_retrieved]
@@ -265,6 +273,7 @@ class CSTM(nn.Module):
 					nns_map[nns_id] = [idx.item()]
 				else:
 					nns_map[nns_id].append(idx.item())
+		print("Total time retrieiving nns from datasets: {:.4f}".format(time.clock() - start))
 
 		batch = self.datasets[split].collater(nns)
 		if "net_input" not in batch.keys():
