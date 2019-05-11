@@ -191,6 +191,8 @@ class CSTM(nn.Module):
 
 		self.nns_data = nns_data
 
+		self.retrieve_valid = args.cstm_retrieve_valid
+
 	def forward(self, encoder_out, ids, split):
 		n_retrieved = self.n_retrieved
 		retrieved = self.retrieve(ids, split, n_retrieved)
@@ -253,6 +255,8 @@ class CSTM(nn.Module):
 		for idx in ids:
 			for nns_key in self.nns_data[split + "_" + str(idx.item())][:n_retrieved]:
 				nns_split, nns_id = nns_key.split("_")
+				if nns_split == "valid" and self.cstm_retrieve_valid:
+					continue
 				nns_id = int(nns_id)
 				self.datasets[nns_split].prefetch([nns_id])
 				nns.append(self.datasets[nns_split][nns_id])
@@ -346,6 +350,7 @@ class CSTMTransformerModel(TransformerModel):
 							in the cstm')
 		parser.add_argument("--cstm-nns-data", metavar='S', type=str,
 							 help="path to the nearest neighbor data for cstm")
+		parser.add_argument("--cstm-retrieve-valid", action="store_true")
 
 	@classmethod
 	def build_model(cls, args, task):
@@ -424,4 +429,5 @@ def base_cstm_architecture(args):
 	args.cstm_layers = getattr(args, "cstm_layers", 1)
 	args.cstm_n_retrieved = getattr(args, "cstm_n_retrieved", 1)
 	args.cstm_nns_data = getattr(args, "cstm_nns_data", "nns_ids_combined.pt")
+	args.cstm_retrieve_valid = getattr(args, "cstm_retrieve_valid", False)
 
