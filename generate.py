@@ -33,6 +33,9 @@ def main(args):
 
     # Load dataset splits
     task = tasks.setup_task(args)
+    # translation using the cstm requires access to all of the datasets
+    # during generation, since the test set has nearest neighbors in
+    # both valid and train
     if args.task == "cstm_translation":
         task.load_dataset("train")
         task.load_dataset("valid")

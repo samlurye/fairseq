@@ -17,9 +17,6 @@ from collections import OrderedDict
 import time
 
 """
-First, upload the flores directory on nc6 to google drive. Then cd into that
-directory and run the following command.
-
 !CUDA_VISIBLE_DEVICES=0 fairseq-train data-bin/wiki_ne_en_bpe5000/ --source-lang en \
 --target-lang ne --arch cstm_transformer --task cstm_translation --share-all-embeddings \
 --encoder-layers 5 --decoder-layers 5 --encoder-embed-dim 512 --decoder-embed-dim 512 \
@@ -27,12 +24,18 @@ directory and run the following command.
 --decoder-attention-heads 2  --encoder-normalize-before --decoder-normalize-before --dropout 0.4 \
 --attention-dropout 0.2 --relu-dropout 0.2 --weight-decay 0.0001 --label-smoothing 0.2 \
 --criterion label_smoothed_cross_entropy --optimizer adam --adam-betas '(0.9, 0.98)' --clip-norm 0 \
---lr-scheduler inverse_sqrt --warmup-update 4000 --warmup-init-lr 1e-7 --lr 1e-3 --min-lr 1e-9 \
---max-tokens 1000 --update-freq 4 --max-epoch 100 --save-interval 2 --cstm-share-embeddings \
---cstm-n-retrieved 4 --fp16
+--lr-scheduler inverse_sqrt --warmup-update 4000 --warmup-init-lr 1e-7 --lr 1e-4 --min-lr 1e-9 \
+--max-tokens 2000 --update-freq 4 --max-epoch 100 --save-interval 2 --cstm-share-embeddings \
+--cstm-n-retrieved 2 --fp16
 """
 
 class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
+
+	"""
+	Decoder transformer block that includes both vanilla attention
+	over the encoder output as well as cross attention over the 
+	conditional source target memory.
+	"""
 
 	def __init__(self, args, no_encoder_attn=False):
 		super().__init__(args, no_encoder_attn)
@@ -55,6 +58,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 		self.W_gs = nn.Linear(self.embed_dim, 1, bias=False)
 		self.W_gm = nn.Linear(self.embed_dim, 1, bias=False)
 
+	# a lot of this method is copied from transformer.TransformerDecoderLayer
 	def forward(self, x, encoder_out, encoder_padding_mask, incremental_state, 
 				self_attn_mask=None, self_attn_padding_mask=None):
 		residual = x
@@ -76,6 +80,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 		if self.encoder_attn is not None:
 			residual = x
 			x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, before=True)
+			# attend over vanilla encoder output
 			cs, attn = self.encoder_attn(
 				query=x,
 				key=encoder_out["encoder"],
@@ -85,6 +90,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 				static_kv=True,
 				need_weights=(not self.training and self.need_attn),
 			)
+			# attend over conditional source target memory
 			if encoder_out["cstm"] is not None:
 				cm, _ = self.cstm_attn(
 					query=x,
@@ -95,6 +101,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 					static_kv=True,
 					need_weights=(not self.training and self.need_attn),
 				)
+				# gate and combine
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
 				x = g * cs + (1 - g) * cm
 			else:
@@ -119,6 +126,11 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 
 class CSTMTransformerDecoder(TransformerDecoder):
 
+	"""
+	Identical to transformer.TransformerDecoder except it uses the special
+	decoder blocks defined above instead of transformer.TransformerDecoderLayer.
+	"""
+
 	def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False, left_pad=False, final_norm=True):
 		super().__init__(args, dictionary, embed_tokens, no_encoder_attn, left_pad, final_norm)
 		self.layers = nn.ModuleList([])
@@ -129,21 +141,29 @@ class CSTMTransformerDecoder(TransformerDecoder):
 
 class CSTMTransformerEncoder(TransformerEncoder):
 
+	"""
+	First feeds the source sentence through a vanilla transformer encoder. It then
+	uses this output to encode retrieved nearest neighbors for the source sentence.
+	"""
+
 	def __init__(self, args, src_dict, encoder_embed_tokens, cstm):
 		super().__init__(args, src_dict, encoder_embed_tokens)
 		self.cstm = cstm
 
 	def forward(self, src_tokens, src_lengths, ids, split):
 		encoder_out = super().forward(src_tokens, src_lengths)
-		# do this nonsense so that the signature of CSTMTransformerDecoderLayer.forward
-		# is the same as the signature of TransformerDecoderLayer.forward,
-		# which means we can just use TransformerDecoder.forward for 
-		# CSTMTransformerDecoder.forward
+
+		# try to retrieve encoded nearest neighbors
 		if len(ids) > 0:
 			cstm_out, cstm_padding_mask = self.cstm(encoder_out, ids, split)
 		else:
 			cstm_out = None 
 			cstm_padding_mask = None
+
+		# do this nonsense so that the signature of CSTMTransformerDecoderLayer.forward
+		# is the same as the signature of TransformerDecoderLayer.forward,
+		# which means we can just use TransformerDecoder.forward for 
+		# CSTMTransformerDecoder.forward
 		tmp = encoder_out["encoder_out"]
 		encoder_out["encoder_out"] = {
 			"encoder": tmp,
@@ -174,6 +194,11 @@ class CSTMTransformerEncoder(TransformerEncoder):
 
 class CSTM(nn.Module):
 
+	"""
+	The class that retrieves and encodes the nearest neighbors for each
+	sentence in the batch. 
+	"""
+
 	def __init__(self, args, src_dict, src_embed_tokens, \
 				 trg_dict, trg_embed_tokens, datasets, nns_data):
 		super().__init__()
@@ -194,33 +219,45 @@ class CSTM(nn.Module):
 		self.nns_data = nns_data
 
 	def forward(self, encoder_out, ids, split):
+		"""
+		This method takes the encoded source sentences as well as their
+		ids and which dataset split they come from and retrieves and encodes
+		their nearest neighbors.
+		"""
+
 		n_retrieved = self.n_retrieved
+		# get nearest neighbors as indices
 		retrieved = self.retrieve(ids, split, n_retrieved)
 
 		if retrieved is None:
 			return None, None
 
+		# reorder encoder_out so that we can encode the retrieved sentences
+		# by attending over it
 		nns_query_ids = retrieved["nns_query_ids"]
 		id_map = torch.tensor([(ids == id).nonzero().item() for id in nns_query_ids])
-
 		tmp = {}
 		tmp["encoder_out"] = encoder_out["encoder_out"][:, id_map]
 		tmp["encoder_padding_mask"] = \
 			encoder_out["encoder_padding_mask"][id_map] \
 				if encoder_out["encoder_padding_mask"] is not None else None
 
+		# encode the retrieved source sentences
 		retrieved_src_encoding = self.retrieved_src_encoder(
 			retrieved["src_tokens"], 
 			retrieved["src_padding_mask"],
 			tmp
 		)
 
+		# encode the retrieved target sentences
 		retrieved_trg_encoding = self.retrieved_trg_encoder(
 			retrieved["trg_tokens"],
 			retrieved["trg_padding_mask"],
 			retrieved_src_encoding
 		)
 
+		# concatenate all of the retrieved encodings for each
+		# source sentence along the seqlen dimension
 		trg_enc = retrieved_trg_encoding["encoder_out"]
 		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
 		final_trg_enc = []
@@ -233,28 +270,35 @@ class CSTM(nn.Module):
 				) # (seqlen * n_retrieved) x hidden
 			)
 			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
-
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
 
 		return final_trg_enc, final_trg_pad
 
 	def retrieve(self, ids, split, n_retrieved):
-		# returns:
+		# Returns:
 		# 	*_tokens: LongTensor of shape (batch * n_retrieved, seqlen)
 		# 	*_padding_mask is a ByteTensor of shape (batch * n_retrieved, seqlen) indicating
 		# 	 the locations of padding elements
 		#
-		# In order to interface with everything else, for 0 <= i < batch and
-		# 0 <= j < n_retrieved, row n_retrieved * i + j of each returned tensor
-		# needs to be the values associated with the j^th retrieved sentence
-		# for source sentence i. That is, as opposed to indexing by batch * j + i.
+		# Given the source sentence ids and the dataset split to which these sentences
+		# belong, this method returns n_retrieved nearest neighbors for each
+		# source sentence as a list of BPE indices.
 
 		nns = []
+		# Later in the method, we collate all of the nearest neighbors into
+		# one big batch. However, Fairseq's collater reorders the batch by
+		# length, so we need to keep track of which nearest neighbors belongs
+		# to which source sentence in nns_map.
 		nns_map = {}
+		# for each sentence, retrieve its nearest neighbors
 		for idx in ids:
 			query_key = split + "_" + str(idx.item())
 			nns_keys = self.nns_data[query_key][:n_retrieved]
+			# if the sentence doesn't have n_retrieved nearest neighbors,
+			# we have to return None, otherwise the model will break (all
+			# source sentences must have the same number of retrieved
+			# sentences)
 			if len(nns_keys) != n_retrieved:
 				return None
 			nns_keys_train = list(filter(lambda k: "train" in k, nns_keys))
@@ -271,6 +315,7 @@ class CSTM(nn.Module):
 					nns_map[nns_id].append(idx.item())
 
 		batch = self.datasets[split].collater(nns)
+		# if this check fails it means the list nns was empty
 		if "net_input" not in batch.keys():
 			return None
 		src_tokens = batch["net_input"]["src_tokens"]
@@ -278,6 +323,8 @@ class CSTM(nn.Module):
 		trg_tokens = batch["target"]
 		trg_padding_mask = trg_tokens.eq(self.trg_dict.pad())
 
+		# nns_query_ids[i] is the source sentence id corresponding to
+		# the i^th retrieved sentence in batch
 		nns_query_ids = []
 		for idx in batch["net_input"]["ids"]:
 			nns_query_ids.append(nns_map[idx.item()].pop(0))
@@ -291,6 +338,13 @@ class CSTM(nn.Module):
 		}
 
 class CSTMInternalEncoder(TransformerDecoder):
+
+	"""
+	Used for encoding the retrieved source and retrieved target sentences.
+	This class is basically identical to transformer.TransformerDecoder except
+	there's no softmax at the end of the forward method. It's just an
+	encoder with cross attention.
+	"""
 
 	def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False, left_pad=False, final_norm=True):
 		super().__init__(args, dictionary, embed_tokens, no_encoder_attn=False, left_pad=False, final_norm=True)
@@ -358,7 +412,10 @@ class CSTMTransformerModel(TransformerModel):
 
 	@classmethod
 	def build_model(cls, args, task):
-		"""Build a new model instance."""
+		"""
+		Build a new model instance. Very similar to transformer.Transformer.build_model.
+		A lot of it is copied.
+		"""
 
 		base_cstm_architecture(args)
 

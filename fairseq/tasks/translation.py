@@ -213,6 +213,14 @@ class TranslationTask(FairseqTask):
 @register_task('cstm_translation')
 class CSTMTranslationTask(TranslationTask):
 
+    """
+    This class is identical to TranslationTask in every way except for the 
+    assignment to self.datasets[split]. It returns a LanguagePairDatasetWithIndex
+    class instead of a LanguagePairDataset class. This just means that along with
+    source-target pairs, batches will include the sentence ids for each pair. This
+    is necessary for retrieving nearest neighbors in the CSTM.
+    """
+
     def load_dataset(self, split, combine=False, **kwargs):
         """Load a given dataset split.
 

@@ -242,6 +242,12 @@ class LanguagePairDataset(FairseqDataset):
 
 class LanguagePairDatasetWithIndex(LanguagePairDataset):
 
+    """
+    Identical to the LanguagePairDataset class except that each batch
+    it produces includes sentence ids and the name of the dataset split
+    in addition to source-target pairs.
+    """
+
     def __init__(self, *args, **kwargs):
         self.split = kwargs["split"]
         del kwargs["split"]
