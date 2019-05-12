@@ -29,6 +29,11 @@ import time
 --cstm-n-retrieved 2 --fp16
 """
 
+"""
+In what follows, there is a lot of code that was copied from transformer.py since there
+wasn't a great way to wrap it.
+"""
+
 class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 
 	"""
