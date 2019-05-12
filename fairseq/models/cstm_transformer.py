@@ -57,7 +57,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 
 		self.batch_count = 0
 
-		self.attn_weight_path = "attn_weights/batch{}-layer" + str(layer)
+		self.attn_weight_path = "attn_weights/batch{}-layer" + str(layer) + ".pt"
 
 	def forward(self, x, encoder_out, encoder_padding_mask, incremental_state, 
 				self_attn_mask=None, self_attn_padding_mask=None):
@@ -143,7 +143,7 @@ class CSTMTransformerEncoder(TransformerEncoder):
 		super().__init__(args, src_dict, encoder_embed_tokens)
 		self.cstm = cstm
 		self.batch_count = 0
-		self.id_path = "ids/batch{}"
+		self.id_path = "ids/batch{}.pt"
 
 	def forward(self, src_tokens, src_lengths, ids, split):
 		encoder_out = super().forward(src_tokens, src_lengths)
