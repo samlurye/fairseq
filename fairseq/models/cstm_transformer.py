@@ -55,6 +55,8 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 		self.W_gs = nn.Linear(self.embed_dim, 1, bias=False)
 		self.W_gm = nn.Linear(self.embed_dim, 1, bias=False)
 
+		self.
+
 	def forward(self, x, encoder_out, encoder_padding_mask, incremental_state, 
 				self_attn_mask=None, self_attn_padding_mask=None):
 		residual = x
@@ -86,7 +88,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 				need_weights=(not self.training and self.need_attn),
 			)
 			if encoder_out["cstm"] is not None:
-				cm, _ = self.cstm_attn(
+				cm, attn_cm = self.cstm_attn(
 					query=x,
 					key=encoder_out["cstm"],
 					value=encoder_out["cstm"],
@@ -95,6 +97,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 					static_kv=True,
 					need_weights=(not self.training and self.need_attn),
 				)
+				print(attn_cm.shape)
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
 				x = g * cs + (1 - g) * cm
 			else:
