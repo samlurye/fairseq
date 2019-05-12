@@ -34,7 +34,7 @@ directory and run the following command.
 
 class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 
-	def __init__(self, args, no_encoder_attn=False):
+	def __init__(self, args, no_encoder_attn=False, layer=0):
 		super().__init__(args, no_encoder_attn)
 
 		# this has to be a separate module from normal encoder
@@ -54,6 +54,10 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 		# feedforward weights for scalar gating variable in cross attention
 		self.W_gs = nn.Linear(self.embed_dim, 1, bias=False)
 		self.W_gm = nn.Linear(self.embed_dim, 1, bias=False)
+
+		self.batch_count = 0
+
+		self.attn_weight_path = "attn_weights/batch{}-layer" + str(layer)
 
 	def forward(self, x, encoder_out, encoder_padding_mask, incremental_state, 
 				self_attn_mask=None, self_attn_padding_mask=None):
@@ -95,14 +99,19 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 					static_kv=True,
 					need_weights=True#(not self.training and self.need_attn),
 				)
-				print(x.shape, encoder_out["cstm"].shape, attn_cm.shape)
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
+				data = {
+					"g": g,
+					"attn_cm": attn_cm
+				}
+				torch.save(data, self.attn_weight_path.format(self.batch_count))
 				x = g * cs + (1 - g) * cm
 			else:
 				x = cs
 			x = F.dropout(x, p=self.dropout, training=self.training)
 			x = residual + x
 			x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, after=True)
+			self.batch_count += 1
 
 		residual = x
 		x = self.maybe_layer_norm(self.final_layer_norm, x, before=True)
@@ -124,8 +133,8 @@ class CSTMTransformerDecoder(TransformerDecoder):
 		super().__init__(args, dictionary, embed_tokens, no_encoder_attn, left_pad, final_norm)
 		self.layers = nn.ModuleList([])
 		self.layers.extend([
-			CSTMTransformerDecoderLayer(args, no_encoder_attn)
-			for _ in range(args.decoder_layers)
+			CSTMTransformerDecoderLayer(args, no_encoder_attn, i)
+			for i in range(args.decoder_layers)
 		])	
 
 class CSTMTransformerEncoder(TransformerEncoder):
@@ -133,6 +142,8 @@ class CSTMTransformerEncoder(TransformerEncoder):
 	def __init__(self, args, src_dict, encoder_embed_tokens, cstm):
 		super().__init__(args, src_dict, encoder_embed_tokens)
 		self.cstm = cstm
+		self.batch_count = 0
+		self.id_path = "ids/batch{}"
 
 	def forward(self, src_tokens, src_lengths, ids, split):
 		encoder_out = super().forward(src_tokens, src_lengths)
@@ -140,6 +151,8 @@ class CSTMTransformerEncoder(TransformerEncoder):
 		# is the same as the signature of TransformerDecoderLayer.forward,
 		# which means we can just use TransformerDecoder.forward for 
 		# CSTMTransformerDecoder.forward
+		torch.save(ids, self.id_path.format(self.batch_count))
+		self.batch_count += 1
 		if len(ids) > 0:
 			cstm_out, cstm_padding_mask = self.cstm(encoder_out, ids, split)
 		else:
