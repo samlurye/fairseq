@@ -95,7 +95,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 					static_kv=True,
 					need_weights=True#(not self.training and self.need_attn),
 				)
-				print(x.shape, encoder_out["cstm"].shapem, attn_cm.shape)
+				print(x.shape, encoder_out["cstm"].shape, attn_cm.shape)
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
 				x = g * cs + (1 - g) * cm
 			else:
