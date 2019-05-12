@@ -55,8 +55,6 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 		self.W_gs = nn.Linear(self.embed_dim, 1, bias=False)
 		self.W_gm = nn.Linear(self.embed_dim, 1, bias=False)
 
-		self.
-
 	def forward(self, x, encoder_out, encoder_padding_mask, incremental_state, 
 				self_attn_mask=None, self_attn_padding_mask=None):
 		residual = x
