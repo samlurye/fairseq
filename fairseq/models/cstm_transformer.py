@@ -96,7 +96,6 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 					need_weights=(not self.training and self.need_attn),
 				)
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
-				print(g)
 				x = g * cs + (1 - g) * cm
 			else:
 				x = cs
