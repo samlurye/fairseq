@@ -93,7 +93,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 					key_padding_mask=encoder_padding_mask["cstm"],
 					incremental_state=incremental_state,
 					static_kv=True,
-					need_weights=(not self.training and self.need_attn),
+					need_weights=True#(not self.training and self.need_attn),
 				)
 				print(attn_cm.shape)
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
