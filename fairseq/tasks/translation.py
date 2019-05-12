@@ -226,6 +226,9 @@ class CSTMTranslationTask(TranslationTask):
 
         Args:
             split (str): name of the split (e.g., train, valid, test)
+
+        This method is copied from TranslationTask except for the final assignment to
+        self.datasets[split].
         """
 
         def split_exists(split, src, tgt, lang, data_path):
