@@ -265,7 +265,7 @@ class CSTM(nn.Module):
 		# source sentence along the seqlen dimension
 		trg_enc = retrieved_trg_encoding["encoder_out"]
 		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
-		assert trg_pad.eq(retrieved["trg_padding_mask"])
+		assert trg_pad.equal(retrieved["trg_padding_mask"])
 		final_trg_enc = []
 		final_trg_pad = []
 		for idx in ids:
