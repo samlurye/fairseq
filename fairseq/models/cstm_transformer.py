@@ -264,8 +264,6 @@ class CSTM(nn.Module):
 		# concatenate all of the retrieved encodings for each
 		# source sentence along the seqlen dimension
 		trg_enc = retrieved_trg_encoding["encoder_out"]
-		for i in range(trg_enc.shape[1]):
-			trg_enc[:, i, :] = retrieved["nns_ids"][i].half()
 		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
 		final_trg_enc = []
 		final_trg_pad = []
@@ -277,13 +275,14 @@ class CSTM(nn.Module):
 				) # (seqlen * n_retrieved) x hidden
 			)
 			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
+		test1 = retrieved["trg_tokens"][nns_query_ids == ids[0]]
+		self.datasets["valid"].prefetch([int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])])
+		test2 = self.datasets["valid"][int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])]
+		print(test2["target"])
+		print(trg_pad[0].reshape(2, trg_pad.shape[1] / 2))
 
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
-
-		print(self.nns_data["train_" + str(ids[0].item())][:2])
-		print(self.nns_data["train_" + str(ids[1].item())][:2])
-		print(final_trg_enc)
 
 		return final_trg_enc, final_trg_pad
 
