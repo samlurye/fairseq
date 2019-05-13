@@ -281,7 +281,8 @@ class CSTM(nn.Module):
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
 
-		print(nns_query_ids)
+		print(self.nns_data["train_" + str(ids[0].item())][:2])
+		print(self.nns_data["train_" + str(ids[1].item())][:2])
 		print(final_trg_enc)
 
 		return final_trg_enc, final_trg_pad
