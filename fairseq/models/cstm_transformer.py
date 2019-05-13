@@ -97,14 +97,14 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 			)
 			# attend over conditional source target memory
 			if encoder_out["cstm"] is not None:
-				cm, attn_cm = self.cstm_attn(
+				cm, _ = self.cstm_attn(
 					query=x,
 					key=encoder_out["cstm"],
 					value=encoder_out["cstm"],
 					key_padding_mask=encoder_padding_mask["cstm"],
 					incremental_state=incremental_state,
 					static_kv=True,
-					need_weights=True,
+					need_weights=(not self.training and self.need_attn),
 				)
 				# gate and combine
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
@@ -275,15 +275,8 @@ class CSTM(nn.Module):
 				) # (seqlen * n_retrieved) x hidden
 			)
 			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
-
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
-
-		test1 = retrieved["trg_tokens"][nns_query_ids == ids[0]]
-		self.datasets["valid"].prefetch([int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])])
-		test2 = self.datasets["valid"][int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])]
-		print(test2["target"])
-		print(final_trg_pad[0].reshape(final_trg_pad.shape[1] // 2, 2).t())
 
 		return final_trg_enc, final_trg_pad
 
@@ -346,8 +339,7 @@ class CSTM(nn.Module):
 			"src_padding_mask": src_padding_mask.to(ids.device),
 			"trg_tokens": trg_tokens.to(ids.device),
 			"trg_padding_mask": trg_padding_mask.to(ids.device),
-			"nns_query_ids": torch.tensor(nns_query_ids).to(ids.device),
-			"nns_ids": batch["net_input"]["ids"]
+			"nns_query_ids": torch.tensor(nns_query_ids).to(ids.device)
 		}
 
 class CSTMInternalEncoder(TransformerDecoder):
