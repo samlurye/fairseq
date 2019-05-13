@@ -279,7 +279,7 @@ class CSTM(nn.Module):
 		self.datasets["valid"].prefetch([int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])])
 		test2 = self.datasets["valid"][int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])]
 		print(test1)
-		print(test2)
+		print(test2.t().flatten())
 
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
