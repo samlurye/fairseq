@@ -106,7 +106,7 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 					static_kv=True,
 					need_weights=True,
 				)
-				assert (attn_cm[0, 0] * encoder_padding_mask["cstm"][0]).sum() == 0
+				assert (attn_cm[0, 0] * encoder_padding_mask["cstm"][0].float()).sum() == 0
 				# gate and combine
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
 				x = g * cs + (1 - g) * cm
