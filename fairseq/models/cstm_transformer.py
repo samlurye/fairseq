@@ -276,8 +276,8 @@ class CSTM(nn.Module):
 			)
 			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
 		test1 = retrieved["trg_tokens"][nns_query_ids == ids[0]]
-		self.datasets["valid"].prefetch([int(self.nns_data["train_" + str(ids[0].item())][0].split("_"))])
-		test2 = self.datasets["valid"][int(self.nns_data["train_" + str(ids[0].item())][0].split("_"))]
+		self.datasets["valid"].prefetch([int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])])
+		test2 = self.datasets["valid"][int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])]
 		print(test1)
 		print(test2)
 
