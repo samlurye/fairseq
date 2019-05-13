@@ -106,7 +106,6 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 					static_kv=True,
 					need_weights=True,
 				)
-				assert (attn_cm[0, 0] * encoder_padding_mask["cstm"][0].half()).sum() == 0
 				# gate and combine
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
 				x = g * cs + (1 - g) * cm
@@ -276,6 +275,8 @@ class CSTM(nn.Module):
 				) # (seqlen * n_retrieved) x hidden
 			)
 			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
+		print(ids[0])
+		print(retrieved["nns_ids"][nns_query_ids == ids[0]].nonzero())
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
 
@@ -340,7 +341,8 @@ class CSTM(nn.Module):
 			"src_padding_mask": src_padding_mask.to(ids.device),
 			"trg_tokens": trg_tokens.to(ids.device),
 			"trg_padding_mask": trg_padding_mask.to(ids.device),
-			"nns_query_ids": torch.tensor(nns_query_ids).to(ids.device)
+			"nns_query_ids": torch.tensor(nns_query_ids).to(ids.device),
+			"nns_ids": batch["net_input"]["ids"]
 		}
 
 class CSTMInternalEncoder(TransformerDecoder):
