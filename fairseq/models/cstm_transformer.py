@@ -275,8 +275,12 @@ class CSTM(nn.Module):
 				) # (seqlen * n_retrieved) x hidden
 			)
 			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
-		print(ids[0])
-		print(retrieved["nns_ids"][nns_query_ids == ids[0]])
+		test1 = retrieved["trg_tokens"][nns_query_ids == ids[0]]
+		self.datasets["valid"].prefetch([int(self.nns_data["train_" + str(ids[0])][0].split("_"))])
+		test2 = self.datasets["valid"][int(self.nns_data["train_" + str(ids[0])][0].split("_"))]
+		print(test1)
+		print(test2)
+
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
 
