@@ -276,7 +276,7 @@ class CSTM(nn.Module):
 			)
 			final_trg_pad.append(trg_pad[nns_query_ids == idx].t().flatten())
 		print(ids[0])
-		print(retrieved["nns_ids"][nns_query_ids == ids[0]].nonzero())
+		print(retrieved["nns_ids"][nns_query_ids == ids[0]])
 		final_trg_enc = torch.stack(final_trg_enc).transpose(0, 1)
 		final_trg_pad = torch.stack(final_trg_pad)
 
