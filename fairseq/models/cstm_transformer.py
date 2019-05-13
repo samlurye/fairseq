@@ -97,15 +97,16 @@ class CSTMTransformerDecoderLayer(TransformerDecoderLayer):
 			)
 			# attend over conditional source target memory
 			if encoder_out["cstm"] is not None:
-				cm, _ = self.cstm_attn(
+				cm, attn_cm = self.cstm_attn(
 					query=x,
 					key=encoder_out["cstm"],
 					value=encoder_out["cstm"],
 					key_padding_mask=encoder_padding_mask["cstm"],
 					incremental_state=incremental_state,
 					static_kv=True,
-					need_weights=(not self.training and self.need_attn),
+					need_weights=True,
 				)
+				assert (attn_cm[0, 0] * encoder_padding_mask["cstm"][0]).sum() == 0
 				# gate and combine
 				g = (self.W_gs(cs) + self.W_gm(cm)).sigmoid()
 				x = g * cs + (1 - g) * cm
@@ -265,7 +266,6 @@ class CSTM(nn.Module):
 		# source sentence along the seqlen dimension
 		trg_enc = retrieved_trg_encoding["encoder_out"]
 		trg_pad = retrieved_trg_encoding["encoder_padding_mask"]
-		assert trg_pad.equal(retrieved["trg_padding_mask"])
 		final_trg_enc = []
 		final_trg_pad = []
 		for idx in ids:
