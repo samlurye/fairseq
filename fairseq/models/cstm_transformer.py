@@ -283,7 +283,7 @@ class CSTM(nn.Module):
 		self.datasets["valid"].prefetch([int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])])
 		test2 = self.datasets["valid"][int(self.nns_data["train_" + str(ids[0].item())][0].split("_")[1])]
 		print(test2["target"])
-		print(final_trg_pad[0].reshape(2, trg_pad.shape[1] // 2))
+		print(final_trg_pad[0].reshape(2, final_trg_pad.shape[1] // 2))
 
 		return final_trg_enc, final_trg_pad
 
